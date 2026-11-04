@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>8-Puzzle Solver</title>
+<style>
+  :root {
+    --bg: #f5f4ef; --panel: #ffffff; --ink: #1f2933; --muted: #6b7280; --line: #e2e0d8;
+    --accent: #2f6fed; --accent-ink: #fff; --tile: #2f6fed; --tile-ink: #fff; --tile-ok: #1f9d6b;
+    --ok: #1f9d6b; --err: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --panel: #1d2026; --ink: #e8eaed; --muted: #9aa3ad; --line: #2c3038;
+      --accent: #5b8def; --tile: #4a7de0; --tile-ok: #2bb784; --ok: #2bb784; --err: #e5675a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 880px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .grid { display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 700px) { .grid { grid-template-columns: 1fr; justify-items: center; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  #board { position: relative; width: 312px; height: 312px; background: var(--line);
+           border-radius: 12px; padding: 0; touch-action: manipulation; }
+  .tile { position: absolute; width: 96px; height: 96px; margin: 6px; border-radius: 10px;
+          background: var(--tile); color: var(--tile-ink); font-size: 38px; font-weight: 700;
+          display: flex; align-items: center; justify-content: center; cursor: pointer;
+          user-select: none; transition: transform .18s ease, background .2s; border: 0; }
+  .tile.home { background: var(--tile-ok); }
+  .tile:focus-visible, button:focus-visible, select:focus-visible {
+    outline: 3px solid var(--accent); outline-offset: 2px; }
+  #moves { text-align: center; margin-top: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .side { display: grid; gap: 16px; width: 100%; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button, select { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+                   border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  label { color: var(--muted); font-size: 13px; }
+  #status { min-height: 22px; font-weight: 600; }
+  #status.ok { color: var(--ok); } #status.err { color: var(--err); }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+  .stat { background: var(--bg); border-radius: 8px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; }
+  th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  tr.best td { font-weight: 700; }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>8-Puzzle Solver</h1>
+  <p class="sub">Heuristic search demo: A*, Greedy Best-First and BFS. Click a tile next to the gap to play yourself.</p>
+
+  <div class="grid">
+    <div>
+      <div id="board" role="group" aria-label="Puzzle board"></div>
+      <div id="moves"></div>
+    </div>
+
+    <div class="side">
+      <section class="card">
+        <h2>New puzzle</h2>
+        <div class="row" id="levels">
+          <button data-level="easy">Easy</button>
+          <button data-level="medium">Medium</button>
+          <button data-level="hard">Hard</button>
+          <button data-level="hardest">Hardest (31 moves)</button>
+          <button data-level="random">Random</button>
+        </div>
+        <p class="hint">Levels scramble the goal by a fixed number of moves, so every board is solvable.</p>
+      </section>
+
+      <section class="card">
+        <h2>Solver</h2>
+        <div class="row">
+          <label for="algo">Algorithm</label>
+          <select id="algo">
+            <option value="astar">A*</option>
+            <option value="greedy">Greedy best-first</option>
+            <option value="bfs">BFS (no heuristic)</option>
+          </select>
+          <label for="heur">Heuristic</label>
+          <select id="heur">
+            <option value="manhattan">Manhattan</option>
+            <option value="linear_conflict">Manhattan + linear conflict</option>
+            <option value="misplaced">Misplaced tiles</option>
+          </select>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button class="primary" id="solve">Solve</button>
+          <button id="play" disabled>Play</button>
+          <button id="step" disabled>Step</button>
+          <button id="reset">Reset board</button>
+          <label for="speed">Speed</label>
+          <input type="range" id="speed" min="1" max="10" value="6">
+        </div>
+        <div id="status" role="status" style="margin-top:12px"></div>
+        <div class="stats">
+          <div class="stat"><b id="s-len">–</b><span>solution moves</span></div>
+          <div class="stat"><b id="s-exp">–</b><span>nodes expanded</span></div>
+          <div class="stat"><b id="s-ms">–</b><span>search time (ms)</span></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Compare all on this board</h2>
+        <button id="compare">Run comparison</button>
+        <div id="cmp" style="margin-top:12px"></div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script>
+const GOAL = [1,2,3,4,5,6,7,8,0];
+const DELTA = { Up: -3, Down: 3, Left: -1, Right: 1 };
+const NAMES = { bfs: "BFS", astar: "A*", greedy: "Greedy" };
+const HNAMES = { misplaced: "misplaced", manhattan: "Manhattan", linear_conflict: "Manhattan + LC" };
+const $ = id => document.getElementById(id);
+
+let state = GOAL.slice(), origin = GOAL.slice();
+let solution = [], idx = 0, timer = null, userMoves = 0, busy = false, solveStart = GOAL.slice();
+
+// ---- board rendering ----
+const tiles = {};
+for (let n = 1; n <= 8; n++) {
+  const t = document.createElement("button");
+  t.className = "tile"; t.textContent = n; t.setAttribute("aria-label", "Tile " + n);
+  t.onclick = () => clickTile(n);
+  $("board").appendChild(t); tiles[n] = t;
+}
+function render() {
+  state.forEach((v, i) => {
+    if (!v) return;
+    const t = tiles[v], r = Math.floor(i / 3), c = i % 3;
+    t.style.transform = `translate(${c * 104}px, ${r * 104}px)`;
+    t.classList.toggle("home", GOAL[i] === v);
+  });
+  const parts = [];
+  if (userMoves) parts.push(`Your moves: ${userMoves}`);
+  if (solution.length) parts.push(`Solution step ${idx} / ${solution.length}`);
+  $("moves").textContent = parts.join("  ·  ");
+}
+function applyMove(name) {
+  const b = state.indexOf(0), n = b + DELTA[name];
+  [state[b], state[n]] = [state[n], state[b]];
+}
+function isSolved() { return state.every((v, i) => v === GOAL[i]); }
+function setStatus(msg, cls = "") { const s = $("status"); s.textContent = msg; s.className = cls; }
+function clearStats() { ["s-len","s-exp","s-ms"].forEach(i => $(i).textContent = "–"); }
+
+// ---- manual play ----
+function clickTile(n) {
+  if (busy) return;
+  stopPlayback(); clearSolution();
+  const i = state.indexOf(n), b = state.indexOf(0);
+  const adjacent = (Math.abs(i - b) === 3) || (Math.abs(i - b) === 1 && Math.floor(i / 3) === Math.floor(b / 3));
+  if (!adjacent) return;
+  [state[i], state[b]] = [state[b], state[i]];
+  userMoves++; render();
+  setStatus(isSolved() ? `Solved in ${userMoves} moves!` : "", "ok");
+}
+
+// ---- API ----
+async function api(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || "request failed");
+  return j;
+}
+function setBusy(v) {
+  busy = v;
+  document.querySelectorAll("button").forEach(b => { if (!b.classList.contains("tile")) b.disabled = v; });
+  if (!v) updateControls();
+}
+function updateControls() {
+  $("play").disabled = $("step").disabled = !solution.length;   // stay enabled after the end so it can replay
+  $("play").textContent = timer ? "Pause" : (solution.length && idx >= solution.length ? "Replay" : "Play");
+  $("heur").disabled = $("algo").value === "bfs";
+}
+
+// ---- new puzzle ----
+document.querySelectorAll("#levels button").forEach(b => b.onclick = async () => {
+  stopPlayback(); clearSolution(); clearStats(); userMoves = 0; setBusy(true);
+  try {
+    state = (await api("/api/new", { level: b.dataset.level })).state;
+    origin = state.slice(); setStatus(`New ${b.textContent.split(" ")[0].toLowerCase()} puzzle.`);
+  } catch (e) { setStatus(e.message, "err"); }
+  setBusy(false); render();
+});
+$("reset").onclick = () => { stopPlayback(); clearSolution(); userMoves = 0; state = origin.slice(); setStatus(""); render(); };
+
+// ---- solving & playback ----
+function clearSolution() { solution = []; idx = 0; updateControls(); }
+function stopPlayback() { if (timer) { clearInterval(timer); timer = null; } updateControls(); }
+function delay() { return 1100 - $("speed").value * 100; }
+function stepForward() {
+  if (idx >= solution.length) { stopPlayback(); return; }
+  applyMove(solution[idx++]); render();
+  if (idx >= solution.length) { stopPlayback(); setStatus("Solved! Press Replay to watch again.", "ok"); }
+  updateControls();
+}
+function rewind() { state = solveStart.slice(); idx = 0; render(); }
+function startPlayback() {
+  if (timer || !solution.length) return;
+  if (idx >= solution.length) rewind();          // finished: replay from the start
+  setStatus("Playing solution…");
+  timer = setInterval(stepForward, delay()); updateControls();
+}
+$("play").onclick = () => timer ? stopPlayback() : startPlayback();
+$("step").onclick = () => { stopPlayback(); if (idx >= solution.length) rewind(); stepForward(); };
+$("speed").oninput = () => { if (timer) { stopPlayback(); startPlayback(); } };
+$("algo").onchange = updateControls;
+
+$("solve").onclick = async () => {
+  stopPlayback(); clearSolution(); userMoves = 0; setBusy(true);
+  setStatus("Searching…");
+  try {
+    const r = await api("/api/solve", { state, algo: $("algo").value, heuristic: $("heur").value });
+    $("s-len").textContent = r.length; $("s-exp").textContent = r.expanded.toLocaleString(); $("s-ms").textContent = r.ms;
+    solution = r.moves; idx = 0; solveStart = state.slice();
+    setStatus(r.length ? "Playing solution…" : "Already solved.", r.length ? "" : "ok");
+    setBusy(false); render();
+    startPlayback();
+  } catch (e) { setStatus(e.message, "err"); setBusy(false); }
+};
+
+$("compare").onclick = async () => {
+  setBusy(true); $("cmp").textContent = "Running… (BFS can take a few seconds on hard boards)";
+  try {
+    const { rows } = await api("/api/compare", { state });
+    const best = Math.min(...rows.map(r => r.expanded));
+    $("cmp").innerHTML = "<table><tr><th>Algorithm</th><th>Expanded</th><th>Moves</th><th>ms</th></tr>" +
+      rows.map(r => `<tr class="${r.expanded === best ? "best" : ""}"><td>${NAMES[r.algo]}${r.algo === "bfs" ? "" : " + " + HNAMES[r.heuristic]}</td>` +
+        `<td>${r.expanded.toLocaleString()}</td><td>${r.length}</td><td>${r.ms}</td></tr>`).join("") + "</table>" +
+      '<p class="hint">Fewest nodes expanded is in bold. Only BFS and A* are guaranteed to find the shortest solution.</p>';
+  } catch (e) { $("cmp").textContent = e.message; }
+  setBusy(false);
+};
+
+// start with a medium puzzle
+document.querySelector('[data-level="medium"]').click();
+render(); updateControls();
+</script>
+</body>
+</html>
